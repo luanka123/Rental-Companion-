@@ -1,0 +1,87 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profile",
+      "description": "User profile information including registration details.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "firstName": { "type": "string", "description": "User's first name" },
+        "lastName": { "type": "string", "description": "User's last name" },
+        "username": { "type": "string", "description": "Unique username" },
+        "email": { "type": "string", "format": "email", "description": "User's email address" },
+        "role": { "type": "string", "enum": ["admin", "client"], "description": "User role" },
+        "rentName": { "type": "string", "description": "Name of the rental agency" },
+        "whatsapp": { "type": "string", "description": "WhatsApp contact number" },
+        "airport": { "type": "string", "description": "Primary airport served" },
+        "officeLocation": { "type": "string", "description": "Google Maps link to the office" },
+        "officePhoto": { "type": "string", "description": "URL to the office photo" },
+        "latitude": { "type": "number", "description": "Office latitude" },
+        "longitude": { "type": "number", "description": "Office longitude" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Account creation timestamp" }
+      },
+      "required": ["uid", "firstName", "lastName", "username", "email", "role"]
+    },
+    "chats": {
+      "title": "Chat Message",
+      "description": "A single message in a chat session.",
+      "type": "object",
+      "properties": {
+        "sender": { "type": "string", "enum": ["customer", "rental"], "description": "Who sent the message" },
+        "rentalUid": { "type": "string", "description": "UID of the rental agency" },
+        "sessionId": { "type": "string", "description": "Unique session ID for the customer" },
+        "originalText": { "type": "string", "description": "Original message text" },
+        "translatedText": { "type": "string", "description": "Translated message text" },
+        "originalLang": { "type": "string", "description": "Source language code" },
+        "targetLang": { "type": "string", "description": "Target language code" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the message was sent" }
+      },
+      "required": ["sender", "rentalUid", "sessionId", "originalText", "translatedText", "originalLang", "targetLang", "timestamp"]
+    },
+    "cars": {
+      "title": "Car",
+      "description": "A car in the rental agency's fleet.",
+      "type": "object",
+      "properties": {
+        "rentalUid": { "type": "string", "description": "UID of the rental agency" },
+        "plate": { "type": "string", "description": "License plate number" },
+        "model": { "type": "string", "description": "Car model name" },
+        "status": { "type": "string", "enum": ["available", "rented", "maintenance"], "description": "Current status of the car" }
+      },
+      "required": ["rentalUid", "plate", "model", "status"]
+    },
+    "rentals": {
+      "title": "Rental Transaction",
+      "description": "An active or past rental transaction.",
+      "type": "object",
+      "properties": {
+        "rentalUid": { "type": "string", "description": "UID of the rental agency" },
+        "carPlate": { "type": "string", "description": "License plate of the car" },
+        "customerName": { "type": "string", "description": "Name of the customer" },
+        "customerPhone": { "type": "string", "description": "Phone number of the customer" },
+        "startDate": { "type": "string", "format": "date-time", "description": "Rental start date" },
+        "endDate": { "type": "string", "format": "date-time", "description": "Rental end date" },
+        "status": { "type": "string", "enum": ["active", "completed", "cancelled"], "description": "Status of the rental" }
+      },
+      "required": ["rentalUid", "carPlate", "customerName", "customerPhone", "startDate", "endDate", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "users",
+      "description": "User profile documents stored by UID."
+    },
+    "/chats/{chatId}": {
+      "schema": "chats",
+      "description": "Chat messages between customers and rental agencies."
+    },
+    "/cars/{carId}": {
+      "schema": "cars",
+      "description": "Cars in the rental agency's fleet."
+    },
+    "/rentals/{rentalId}": {
+      "schema": "rentals",
+      "description": "Rental transactions."
+    }
+  }
+}

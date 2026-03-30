@@ -1,0 +1,114 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "borrellim73@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidUser(data) {
+      let requiredFields = ['uid', 'firstName', 'lastName', 'username', 'email', 'role'];
+      let optionalFields = ['rentName', 'whatsapp', 'airport', 'officeLocation', 'officePhoto', 'latitude', 'longitude', 'createdAt'];
+      return data.keys().hasAll(requiredFields) &&
+             data.keys().hasOnly(requiredFields.concat(optionalFields)) &&
+             data.firstName is string && data.firstName.size() > 0 && data.firstName.size() < 100 &&
+             data.lastName is string && data.lastName.size() > 0 && data.lastName.size() < 100 &&
+             data.username is string && data.username.size() > 0 && data.username.size() < 50 &&
+             data.email is string &&
+             data.role in ['admin', 'client'];
+    }
+
+    function isValidChat(data) {
+      let requiredFields = ['sender', 'rentalUid', 'sessionId', 'originalText', 'translatedText', 'originalLang', 'targetLang', 'timestamp'];
+      return data.keys().hasAll(requiredFields) &&
+             data.keys().hasOnly(requiredFields) &&
+             data.sender in ['customer', 'rental'] &&
+             data.originalText is string && data.originalText.size() > 0 && data.originalText.size() < 5000 &&
+             data.translatedText is string &&
+             data.originalLang is string &&
+             data.targetLang is string;
+    }
+
+    function isValidCar(data) {
+      let requiredFields = ['rentalUid', 'plate', 'model', 'status', 'createdAt'];
+      return data.keys().hasAll(requiredFields) &&
+             data.rentalUid is string &&
+             data.plate is string && data.plate.size() > 0 && data.plate.size() < 20 &&
+             data.model is string && data.model.size() > 0 && data.model.size() < 100 &&
+             data.status in ['available', 'rented', 'maintenance'];
+    }
+
+    function isValidRental(data) {
+      let requiredFields = ['rentalUid', 'carId', 'carPlate', 'carModel', 'customerName', 'customerPhone', 'endDate', 'status', 'createdAt'];
+      return data.keys().hasAll(requiredFields) &&
+             data.rentalUid is string &&
+             data.carId is string &&
+             data.carPlate is string &&
+             data.customerName is string && data.customerName.size() > 0 && data.customerName.size() < 100 &&
+             data.customerPhone is string && data.customerPhone.size() > 0 && data.customerPhone.size() < 20 &&
+             data.status in ['active', 'completed', 'cancelled'];
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      
+      // Allow creation: 
+      // 1. User creating their own profile as 'client'
+      // 2. Admin creating any profile
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (
+        (isOwner(userId) && request.resource.data.role == 'client') || 
+        isAdmin()
+      );
+      
+      // Allow update:
+      // 1. User updating their own profile but NOT changing their role
+      // 2. Admin updating anything
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (
+        (isOwner(userId) && request.resource.data.role == resource.data.role) || 
+        isAdmin()
+      );
+
+      // Admin can delete
+      allow delete: if isAdmin();
+    }
+
+    match /chats/{chatId} {
+      // Rental can read messages for their agency
+      // Customer can read messages for their session
+      allow read: if (isAuthenticated() && (request.auth.uid == resource.data.rentalUid || isAdmin())) || 
+                     (resource.data.sessionId != null);
+      
+      // Customer can create (unauthenticated)
+      // Rental can create (authenticated)
+      allow create: if isValidChat(request.resource.data) && (
+        (request.resource.data.sender == 'customer') ||
+        (isAuthenticated() && (request.auth.uid == request.resource.data.rentalUid || isAdmin()) && request.resource.data.sender == 'rental')
+      );
+
+      // Rental or Admin can delete their own chats
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.rentalUid || isAdmin());
+    }
+
+    match /cars/{carId} {
+      allow read: if true; // Publicly readable for demo/client lookup
+      allow create, update: if isAuthenticated() && (request.auth.uid == request.resource.data.rentalUid || isAdmin()) && isValidCar(request.resource.data);
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.rentalUid || isAdmin());
+    }
+
+    match /rentals/{rentalId} {
+      allow read: if true; // Publicly readable for client lookup
+      allow create, update: if isAuthenticated() && (request.auth.uid == request.resource.data.rentalUid || isAdmin()) && isValidRental(request.resource.data);
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.rentalUid || isAdmin());
+    }
+  }
+}
