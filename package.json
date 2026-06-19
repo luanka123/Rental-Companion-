@@ -28,6 +28,7 @@
     "react-firebase-hooks": "^5.1.1",
     "react-i18next": "^17.0.1",
     "react-router-dom": "^7.13.2",
+    "recharts": "^3.8.1",
     "vite": "^6.2.0"
   },
   "devDependencies": {

@@ -50,13 +50,15 @@ service cloud.firestore {
 
     function isValidRental(data) {
       let requiredFields = ['rentalUid', 'carId', 'carPlate', 'carModel', 'customerName', 'customerPhone', 'endDate', 'status', 'createdAt'];
+      let optionalFields = ['returned', 'customerNotes', 'rentalNotes'];
       return data.keys().hasAll(requiredFields) &&
+             data.keys().hasOnly(requiredFields.concat(optionalFields)) &&
              data.rentalUid is string &&
              data.carId is string &&
              data.carPlate is string &&
              data.customerName is string && data.customerName.size() > 0 && data.customerName.size() < 100 &&
              data.customerPhone is string && data.customerPhone.size() > 0 && data.customerPhone.size() < 20 &&
-             data.status in ['active', 'completed', 'cancelled'];
+             data.status in ['active', 'completed', 'cancelled', 'archived'];
     }
 
     match /users/{userId} {

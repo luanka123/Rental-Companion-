@@ -1,7 +1,7 @@
 import React, { useState, useEffect, createContext, useContext, Component } from 'react';
 import { Routes, Route, Link, useSearchParams, useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, MessageCircle, MapPin, Camera, AlertTriangle, Fuel, ArrowRight, Check, User, LogOut, X, Mail, Lock, UserPlus, Languages, Car, Users, Settings, LayoutDashboard, ClipboardList, ExternalLink, Copy, Trash2, Download, ChevronDown, ChevronUp, TrendingUp, Map as MapIcon, Search } from 'lucide-react';
+import { CheckCircle2, MessageCircle, MapPin, Camera, AlertTriangle, Fuel, ArrowRight, Check, User, LogOut, X, Mail, Lock, UserPlus, Languages, Car, Users, Settings, LayoutDashboard, ClipboardList, ExternalLink, Copy, Trash2, Download, ChevronDown, ChevronUp, TrendingUp, Map as MapIcon, Search, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { GoogleGenAI } from "@google/genai";
 import { auth, db, googleProvider } from './firebase';
@@ -26,6 +26,7 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 import EXIF from 'exif-js';
 import { translateText, detectLanguage } from './services/geminiService';
+import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 
 // --- Error Handling ---
 
@@ -1053,6 +1054,8 @@ const DemoPage = () => {
   };
 
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [customerReturnNotes, setCustomerReturnNotes] = useState('');
+  const [isReturning, setIsReturning] = useState(false);
   const [photos, setPhotos] = useState({
     front: false,
     back: false,
@@ -1067,6 +1070,22 @@ const DemoPage = () => {
       alert("Foto confermate! Grazie per la collaborazione.");
     } else {
       alert("Fai tutte le foto prima!");
+    }
+  };
+
+  const handleCustomerReturn = async () => {
+    if (!selectedRental) return;
+    setIsReturning(true);
+    try {
+      await updateDoc(doc(db, 'rentals', selectedRental.id), {
+        returned: true,
+        customerNotes: customerReturnNotes,
+      });
+      alert("Richiesta di riconsegna inviata! Grazie.");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsReturning(false);
     }
   };
 
@@ -1308,6 +1327,36 @@ const DemoPage = () => {
               </div>
             </section>
 
+            {/* Section 5: Return Vehicle */}
+            <section className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center">
+                  <RotateCcw size={20} />
+                </div>
+                <h2 className="text-xl font-bold">Riconsegna Veicolo</h2>
+              </div>
+              <p className="text-gray-600 text-sm mb-4">Stai riconsegnando l'auto? Lascia un feedback o segnala eventuali problemi.</p>
+              <textarea 
+                className="w-full px-4 py-3 rounded-2xl bg-gray-50 border border-gray-100 outline-none focus:ring-2 focus:ring-blue-500 text-sm mb-4 h-24"
+                placeholder="Note sulla riconsegna (es: parcheggio, livello carburante...)"
+                value={customerReturnNotes}
+                onChange={e => setCustomerReturnNotes(e.target.value)}
+              />
+              <button 
+                onClick={handleCustomerReturn}
+                disabled={isReturning || selectedRental.returned}
+                className={`w-full py-4 rounded-2xl font-bold transition-all shadow-lg flex items-center justify-center gap-2 ${selectedRental.returned ? 'bg-green-100 text-green-600 cursor-not-allowed' : 'bg-orange-600 text-white hover:bg-orange-700 shadow-orange-100'}`}
+              >
+                {isReturning ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                ) : selectedRental.returned ? (
+                  <><Check size={20} /> Riconsegna Segnalata</>
+                ) : (
+                  <><CheckCircle2 size={20} /> Conferma Riconsegna</>
+                )}
+              </button>
+            </section>
+
             {rentalProfile?.pois && rentalProfile.pois.length > 0 && (
               <section className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
                 <div className="flex items-center justify-between mb-4">
@@ -1413,6 +1462,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   
   const [activeTab, setActiveTab] = useState<'config' | 'fleet' | 'rentals' | 'chats'>('config');
+  const [showArchived, setShowArchived] = useState(false);
   const [cars, setCars] = useState<any[]>([]);
   const [rentals, setRentals] = useState<any[]>([]);
   const [isAddingCar, setIsAddingCar] = useState(false);
@@ -1422,6 +1472,37 @@ const Dashboard = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Automatic Archival Logic
+  useEffect(() => {
+    if (!user || rentals.length === 0) return;
+    
+    const now = new Date();
+    const toArchive = rentals.filter(r => 
+      r.status === 'active' && 
+      new Date(r.endDate) < now
+    );
+
+    if (toArchive.length > 0) {
+      console.log(`Dashboard: Archiving ${toArchive.length} expired rentals...`);
+      const archiveExpired = async () => {
+        const batch = writeBatch(db);
+        for (const rental of toArchive) {
+          batch.update(doc(db, 'rentals', rental.id), { status: 'archived' });
+          if (rental.carId) {
+            batch.update(doc(db, 'cars', rental.carId), { status: 'available' });
+          }
+        }
+        try {
+          await batch.commit();
+          console.log("Dashboard: Expired rentals archived successfully");
+        } catch (err) {
+          console.error("Dashboard: Error archiving expired rentals", err);
+        }
+      };
+      archiveExpired();
+    }
+  }, [rentals, user]);
 
   console.log("Dashboard: Rendering...", { user: user?.email, profile: !!profile, loading });
 
@@ -1494,17 +1575,19 @@ const Dashboard = () => {
 
   // Derived Chat List (FIFO)
   const chatList = React.useMemo(() => {
-    const list = rentals.map(r => ({
-      sessionId: r.customerPhone,
-      customerName: r.customerName,
-      carPlate: r.carPlate,
-      carModel: r.carModel,
-      rentalUid: r.rentalUid,
-      lastMessage: '',
-      timestamp: r.createdAt,
-      isRental: true,
-      status: r.status
-    }));
+    const list = rentals
+      .filter(r => r.status === 'active') // Only active rentals in chat list
+      .map(r => ({
+        sessionId: r.customerPhone,
+        customerName: r.customerName,
+        carPlate: r.carPlate,
+        carModel: r.carModel,
+        rentalUid: r.rentalUid,
+        lastMessage: '',
+        timestamp: r.createdAt,
+        isRental: true,
+        status: r.status
+      }));
 
     activeChats.forEach(ac => {
       const existing = list.find(l => l.sessionId === ac.sessionId);
@@ -1924,12 +2007,24 @@ const Dashboard = () => {
     }
   };
 
-  const handleCompleteRental = async (rentalId: string, carId: string) => {
+  const handleCompleteRental = async (rentalId: string, carId: string, rentalNotes: string = '', customerNotes: string = '') => {
+    setIsSaving(true);
     try {
-      await updateDoc(doc(db, 'rentals', rentalId), { status: 'completed' });
-      await updateDoc(doc(db, 'cars', carId), { status: 'available' });
+      await updateDoc(doc(db, 'rentals', rentalId), { 
+        status: 'archived', 
+        returned: true,
+        rentalNotes,
+        customerNotes
+      });
+      if (carId) {
+        await updateDoc(doc(db, 'cars', carId), { status: 'available' });
+      }
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `rentals/${rentalId}`);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -2354,9 +2449,18 @@ const Dashboard = () => {
                 <div className="flex items-center justify-between mb-8">
                   <h2 className="text-xl font-bold flex items-center gap-2">
                     <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center"><Users size={18} /></div>
-                    Noleggi Attivi
+                    Gestione Noleggi
                   </h2>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 items-center">
+                    <label className="flex items-center gap-2 text-xs font-bold text-gray-400 cursor-pointer hover:text-blue-600 transition-colors mr-4">
+                      <input 
+                        type="checkbox" 
+                        checked={showArchived}
+                        onChange={() => setShowArchived(!showArchived)}
+                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      Mostra Archivio
+                    </label>
                     <button 
                       onClick={refreshData}
                       className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
@@ -2433,63 +2537,118 @@ const Dashboard = () => {
                 )}
 
                 <div className="space-y-4">
-                  {rentals.length === 0 && <p className="text-gray-400 text-sm text-center py-10">Nessun noleggio attivo.</p>}
-                  {rentals.map(rental => (
-                    <div key={rental.id} className="p-6 rounded-2xl border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:border-blue-200 transition-all group">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
-                          <User size={24} />
+                  {rentals.filter(r => showArchived ? true : r.status === 'active').length === 0 && (
+                    <p className="text-gray-400 text-sm text-center py-10">Nessun noleggio {showArchived ? '' : 'attivo'}.</p>
+                  )}
+                  {rentals.filter(r => showArchived ? true : r.status === 'active').map(rental => (
+                    <div key={rental.id} className={`p-6 rounded-3xl border transition-all flex flex-col gap-4 ${rental.status === 'archived' ? 'bg-gray-50 border-gray-100 opacity-70' : 'bg-white border-gray-100 hover:border-blue-200 shadow-sm'}`}>
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-12 h-12 rounded-full flex items-center justify-center ${rental.status === 'archived' ? 'bg-gray-200 text-gray-500' : 'bg-blue-50 text-blue-600'}`}>
+                            <User size={24} />
+                          </div>
+                          <div>
+                            <p className="font-bold text-gray-900">{rental.customerName}</p>
+                            <p className="text-xs text-gray-400">{rental.customerPhone}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-bold text-gray-900">{rental.customerName}</p>
-                          <p className="text-xs text-gray-400">{rental.customerPhone}</p>
+                        <div className="flex items-center gap-6">
+                          <div className="text-right">
+                            <p className="text-xs font-bold text-blue-600">{rental.carPlate}</p>
+                            <p className="text-[10px] text-gray-400 uppercase">Scadenza: {new Date(rental.endDate).toLocaleString()}</p>
+                          </div>
+                          <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${rental.status === 'active' ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-500'}`}>
+                            {rental.status}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {rental.status === 'active' && (
+                              <button 
+                                onClick={() => {
+                                  setActiveTab('chats');
+                                  const cleanPhone = rental.customerPhone.replace(/\D/g, '');
+                                  setSelectedChat(cleanPhone);
+                                  setTimeout(() => {
+                                    const chatEl = document.getElementById('chat-section');
+                                    if (chatEl) chatEl.scrollIntoView({ behavior: 'smooth' });
+                                  }, 100);
+                                }}
+                                className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
+                              >
+                                <MessageCircle size={14} /> Chat
+                              </button>
+                            )}
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteConfirm({
+                                  type: 'rental',
+                                  id: rental.id,
+                                  extraId: rental.carId,
+                                  label: `il noleggio di ${rental.customerName}`
+                                });
+                              }}
+                              className="p-2 bg-red-50 text-red-400 hover:text-red-600 rounded-xl transition-all border border-red-100"
+                              title="Elimina noleggio"
+                            >
+                              <X size={18} />
+                            </button>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-6">
-                        <div className="text-right">
-                          <p className="text-xs font-bold text-blue-600">{rental.carPlate}</p>
-                          <p className="text-[10px] text-gray-400 uppercase">Scade: {new Date(rental.endDate).toLocaleDateString()}</p>
+
+                      {rental.status === 'active' && (
+                        <div className="pt-4 border-t border-gray-50 flex flex-col gap-4">
+                          <div className="grid md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Note Rental (Rientro)</label>
+                              <textarea 
+                                id={`rental-notes-${rental.id}`}
+                                className="w-full px-3 py-2 bg-gray-50 rounded-xl text-xs border-none outline-none focus:ring-1 focus:ring-blue-500 h-16"
+                                placeholder="Danni, carburante, pulizia..."
+                                defaultValue={rental.rentalNotes || ''}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Note Cliente</label>
+                              <textarea 
+                                id={`customer-notes-${rental.id}`}
+                                className="w-full px-3 py-2 bg-gray-50 rounded-xl text-xs border-none outline-none focus:ring-1 focus:ring-blue-500 h-16"
+                                placeholder="Feedback cliente..."
+                                defaultValue={rental.customerNotes || ''}
+                              />
+                            </div>
+                          </div>
+                          <div className="flex justify-end">
+                            <button 
+                              onClick={() => {
+                                const rNotes = (document.getElementById(`rental-notes-${rental.id}`) as HTMLTextAreaElement).value;
+                                const cNotes = (document.getElementById(`customer-notes-${rental.id}`) as HTMLTextAreaElement).value;
+                                handleCompleteRental(rental.id, rental.carId, rNotes, cNotes);
+                              }}
+                              className="bg-green-600 text-white px-6 py-2 rounded-xl text-xs font-bold hover:bg-green-700 transition-all flex items-center gap-2 shadow-lg shadow-green-100"
+                            >
+                              <CheckCircle2 size={14} /> Termina Noleggio e Libera Auto
+                            </button>
+                          </div>
                         </div>
-                        <div className="px-3 py-1 bg-green-100 text-green-600 rounded-full text-[10px] font-bold uppercase">
-                          {rental.status}
+                      )}
+
+                      {rental.status === 'archived' && (rental.rentalNotes || rental.customerNotes) && (
+                        <div className="pt-4 border-t border-gray-50 grid md:grid-cols-2 gap-4 opacity-70">
+                          {rental.rentalNotes && (
+                            <div>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase">Note Rental:</p>
+                              <p className="text-xs text-gray-600 italic">{rental.rentalNotes}</p>
+                            </div>
+                          )}
+                          {rental.customerNotes && (
+                            <div>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase">Note Cliente:</p>
+                              <p className="text-xs text-gray-600 italic">{rental.customerNotes}</p>
+                            </div>
+                          )}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button 
-                            onClick={() => {
-                              setActiveTab('chats');
-                              const cleanPhone = rental.customerPhone.replace(/\D/g, '');
-                              setSelectedChat(cleanPhone);
-                              // Scroll to chat section
-                              setTimeout(() => {
-                                const chatEl = document.getElementById('chat-section');
-                                if (chatEl) {
-                                  chatEl.scrollIntoView({ behavior: 'smooth' });
-                                } else {
-                                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                                }
-                              }, 100);
-                            }}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
-                          >
-                            <MessageCircle size={14} /> Verifica Noleggio
-                          </button>
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDeleteConfirm({
-                                type: 'rental',
-                                id: rental.id,
-                                extraId: rental.carId,
-                                label: `il noleggio di ${rental.customerName}`
-                              });
-                            }}
-                            className="p-2 bg-red-50 text-red-400 hover:text-red-600 rounded-xl transition-all border border-red-100"
-                            title="Elimina noleggio"
-                          >
-                            <X size={18} />
-                          </button>
-                        </div>
-                      </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2599,6 +2758,79 @@ const Dashboard = () => {
           </div>
 
           <div className="lg:col-span-1 space-y-8">
+            {/* Grafico tasso occupazione flotta attuale */}
+            <section className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+              <h3 className="text-lg font-bold text-gray-900 mb-1 flex items-center gap-2">
+                <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center">
+                  <TrendingUp size={18} />
+                </div>
+                Occupazione Flotta
+              </h3>
+              <p className="text-[11px] text-gray-500 mb-4 font-medium">Visualizzazione real-time della disponibilità attuale.</p>
+              
+              {cars.length === 0 ? (
+                <div className="text-center py-6 text-gray-400">
+                  <Car size={36} className="mx-auto mb-2 text-gray-300 opacity-60" />
+                  <p className="text-xs font-semibold mb-3">Nessuna auto registrata</p>
+                  <button
+                    onClick={() => setActiveTab('fleet')}
+                    className="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded-xl font-bold hover:bg-blue-100 transition-all cursor-pointer"
+                  >
+                    Aggiungi Auto
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="h-44 relative flex items-center justify-center">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: 'Noleggiate', value: cars.filter((c: any) => c.status === 'rented').length },
+                            { name: 'Disponibili', value: cars.filter((c: any) => c.status === 'available').length }
+                          ]}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={50}
+                          outerRadius={70}
+                          paddingAngle={3}
+                          dataKey="value"
+                        >
+                          <Cell fill="#3b82f6" />
+                          <Cell fill="#10b981" />
+                        </Pie>
+                        <Tooltip 
+                          formatter={(value) => [`${value} auto`]}
+                          contentStyle={{ borderRadius: '12px', borderColor: '#f3f4f6' }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute text-center pointer-events-none">
+                      <p className="text-2xl font-black text-gray-900">
+                        {Math.round((cars.filter((c: any) => c.status === 'rented').length / cars.length) * 100) || 0}%
+                      </p>
+                      <p className="text-[9px] text-gray-400 uppercase font-black tracking-wider">Occupata</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-center">
+                    <div className="p-2 bg-blue-50/50 rounded-2xl border border-blue-100/50">
+                      <p className="text-[10px] text-blue-600 font-bold uppercase tracking-wider">Noleggiate</p>
+                      <p className="text-base font-black text-blue-700">{cars.filter((c: any) => c.status === 'rented').length}</p>
+                    </div>
+                    <div className="p-2 bg-green-50/50 rounded-2xl border border-green-100/50">
+                      <p className="text-[10px] text-green-600 font-bold uppercase tracking-wider">Disponibili</p>
+                      <p className="text-base font-black text-green-700">{cars.filter((c: any) => c.status === 'available').length}</p>
+                    </div>
+                  </div>
+
+                  <div className="text-[9px] text-gray-400 text-center font-medium">
+                    Totale flotta: {cars.length} veicoli registrati
+                  </div>
+                </div>
+              )}
+            </section>
+
             <section className="bg-gradient-to-br from-blue-600 to-blue-800 text-white p-8 rounded-3xl shadow-xl shadow-blue-100 relative overflow-hidden">
               <div className="absolute top-0 right-0 p-4 opacity-10">
                 <TrendingUp size={120} />

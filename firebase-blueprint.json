@@ -61,7 +61,10 @@
         "customerPhone": { "type": "string", "description": "Phone number of the customer" },
         "startDate": { "type": "string", "format": "date-time", "description": "Rental start date" },
         "endDate": { "type": "string", "format": "date-time", "description": "Rental end date" },
-        "status": { "type": "string", "enum": ["active", "completed", "cancelled"], "description": "Status of the rental" }
+        "status": { "type": "string", "enum": ["active", "completed", "cancelled", "archived"], "description": "Status of the rental" },
+        "returned": { "type": "boolean", "description": "Whether the car has been returned" },
+        "customerNotes": { "type": "string", "description": "Notes from the customer upon return" },
+        "rentalNotes": { "type": "string", "description": "Notes from the rental agency upon return" }
       },
       "required": ["rentalUid", "carPlate", "customerName", "customerPhone", "startDate", "endDate", "status"]
     }
